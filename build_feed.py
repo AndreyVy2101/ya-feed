@@ -55,4 +55,4 @@ for entry in feed.entries[:MAX_ITEMS]:
     if len(full) < MIN_TEXT:                   # пытаемся добрать с сайта
         try:
             html_page = requests.get(link, timeout=10).text
-            full = clean_html(html_pag
+            full = clean_html(html_pag)
