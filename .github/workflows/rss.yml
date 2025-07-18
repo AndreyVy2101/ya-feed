@@ -1,0 +1,36 @@
+name: Rebuild Yandex RSS
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'       # запуск каждые 30 минут
+  workflow_dispatch:             # ручной запуск кнопкой
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install deps
+        run: pip install feedparser beautifulsoup4 lxml pytz requests
+
+      - name: Build feed
+        run: python build_feed.py
+
+      - name: Commit if changed
+        run: |
+          git config --global user.email "rss-bot@users.noreply.github.com"
+          git config --global user.name  "rss-bot"
+          git add yandex.xml
+          git commit -m "auto: update feed" || echo "No changes"
+
+      - name: Push
+        uses: ad-m/github-push-action@v0.8.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
