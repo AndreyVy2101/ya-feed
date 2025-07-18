@@ -56,9 +56,9 @@ for entry in feed.entries[:MAX_ITEMS]:
         try:
             html_page = requests.get(link, timeout=10).text
             full = clean_html(html_pag)
-try:
-    html_page = requests.get(link, timeout=10).text
-    full = clean_html(html_page)
-except requests.RequestException:
-    # если страница недоступна – не падаем, а просто пропускаем
-    pass
+            try:
+                html_page = requests.get(link, timeout=10).text
+                full = clean_html(html_page)
+            except requests.RequestException:
+                # если страница недоступна – не падаем, а просто пропускаем
+                pass
