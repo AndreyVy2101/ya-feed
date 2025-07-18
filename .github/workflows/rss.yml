@@ -1,5 +1,10 @@
 name: Rebuild Yandex RSS
 
+# ↓ добавляем это
+permissions:
+  contents: write      # даём токену право пушить в репозиторий
+  id-token: write      # (не обязательно, но полезно для future use)
+
 on:
   schedule:
     - cron: '*/30 * * * *'       # запуск каждые 30 минут
