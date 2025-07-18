@@ -1,21 +1,7 @@
 #!/usr/bin/env python3
 """
-build_feed.py
-─────────────
-Собирает RSS‑ленту для раздела «Свежее и актуальное» Яндекса.
-
-Что делает скрипт:
-1. Скачивает исходный RSS, который генерирует Tilda.
-2. Для каждого <item>:
-   • копирует title, link, guid;
-   • проставляет/проверяет pubDate;
-   • вытаскивает ≥200 символов текста и кладёт в <yandex:full-text>.
-3. Сохраняет результат в файл yandex.xml (его отдает GitHub Pages).
-
-Запускать можно вручную: `python build_feed.py`
-или через GitHub Actions (см. .github/workflows/rss.yml).
-
-Требуются библиотеки: feedparser, requests, beautifulsoup4, lxml, pytz
+build_feed.py ─ собирает RSS-ленту для раздела
+«Свежее и актуальное» Яндекса из RSS Tilda.
 """
 
 import datetime
@@ -27,41 +13,46 @@ import requests
 import bs4
 import pytz
 
-# ───────────────────────────────────────────────
-# НАСТРОЙКИ
-
+# ─── НАСТРОЙКИ ─────────────────────────────────────────────────────────────
 SOURCE_RSS   = "https://artsoft.club/rss-feed-650873130041.xml"
 OUTPUT_FILE  = pathlib.Path("yandex.xml")
 TIMEZONE     = pytz.timezone("Europe/Moscow")
-MIN_TEXT_LEN = 200          # минимальный объём <yandex:full-text>
-MAX_ITEMS    = 1000         # максимум элементов в итоговой ленте
+MIN_TEXT_LEN = 200           # миним. длина <yandex:full-text>
+MAX_ITEMS    = 1000
+# ───────────────────────────────────────────────────────────────────────────
 
-# ───────────────────────────────────────────────
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 
-def strip_html(html_text: str) -> str:
-    """Удаляем HTML‑теги, возвращаем чистый текст."""
-    soup = bs4.BeautifulSoup(html_text, "lxml")
-    return soup.get_text(" ", strip=True)
+def strip_html(raw_html: str) -> str:
+    """Удаляем все теги, возвращаем чистый текст одной строкой."""
+    return bs4.BeautifulSoup(raw_html, "lxml").get_text(" ", strip=True)
+
 
 def extract_full_text(entry) -> str:
     """
-    Пытаемся получить >200 символов текста:
-      1) из <content> или <summary>;
-      2) если мало — скачиваем саму страницу и чистим HTML.
+    Возвращает ≥ MIN_TEXT_LEN символов чистого текста
+    (turbo:content → content:encoded → description → HTML-страница).
     """
-    # 1. turbo:content / content:encoded
-    if entry.get("content"):
+    # 1. turbo:content  ─ feedparser кладёт как turbo_content или 'turbo:content'
+    if entry.get("turbo_content"):
+        txt = strip_html(entry["turbo_content"])
+    elif entry.get("turbo:content"):
+        txt = strip_html(entry["turbo:content"])
+
+    # 2. content:encoded / <content>
+    elif entry.get("content"):
         txt = strip_html(entry.content[0].value)
+
+    # 3. description / summary
     else:
         txt = strip_html(entry.get("summary", ""))
 
     if len(txt) >= MIN_TEXT_LEN:
         return txt
 
-    # 2. fallback — берём текст со страницы
+    # 4. fallback – скачиваем саму страницу
     try:
-        resp = requests.get(entry.link, timeout=20)
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; RSSBot/1.0)"}
+        resp = requests.get(entry.link, headers=headers, timeout=20)
         resp.raise_for_status()
         txt = strip_html(resp.text)
     except requests.RequestException:
@@ -69,15 +60,12 @@ def extract_full_text(entry) -> str:
 
     return txt
 
-# ───────────────────────────────────────────────
-# СБОРКА ЛЕНТЫ
 
 def build_feed() -> None:
     feed = feedparser.parse(SOURCE_RSS)
     if feed.bozo:
-        raise RuntimeError(f"Не смог разобрать исходный RSS: {feed.bozo_exception}")
+        raise RuntimeError(f"Не смог прочитать исходный RSS: {feed.bozo_exception}")
 
-    # Заготовка каналa
     ET.register_namespace("yandex", "http://news.yandex.ru")
     rss     = ET.Element("rss", version="2.0")
     channel = ET.SubElement(rss, "channel")
@@ -94,22 +82,16 @@ def build_feed() -> None:
     for entry in feed.entries[:MAX_ITEMS]:
         title = entry.get("title", "").strip()
         link  = entry.get("link", "").strip()
-        pub   = entry.get("published", "").strip()
+        pub   = entry.get("published", "").strip() or now.strftime("%a, %d %b %Y %H:%M:%S %z")
 
-        # пропускаем элементы без обязательных полей
-        if not (title and link):
+        # обязательные поля
+        if not (title and link and pub):
             continue
-
-        # если pubDate отсутствует — ставим текущее время
-        if not pub:
-            pub = now.strftime("%a, %d %b %Y %H:%M:%S %z")
 
         full_text = extract_full_text(entry)
         if len(full_text) < MIN_TEXT_LEN:
-            # пропускаем слишком короткие статьи — Яндекс будет ругаться «0 слов»
             continue
 
-        # формируем <item>
         item = ET.SubElement(channel, "item")
         ET.SubElement(item, "title").text = title
         ET.SubElement(item, "link").text  = link
@@ -119,14 +101,9 @@ def build_feed() -> None:
 
         added += 1
 
-    # сохраняем
-    tree = ET.ElementTree(rss)
-    tree.write(OUTPUT_FILE, encoding="utf-8", xml_declaration=True)
-
+    ET.ElementTree(rss).write(OUTPUT_FILE, encoding="utf-8", xml_declaration=True)
     print(f"Готово: записано {added} items → {OUTPUT_FILE.absolute()}")
 
-# ───────────────────────────────────────────────
-# ТОЧКА ВХОДА
 
 if __name__ == "__main__":
     build_feed()
